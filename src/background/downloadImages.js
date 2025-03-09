@@ -32,8 +32,22 @@ function startDownload(
   return true; // Keeps the message channel open until `resolve` is called
 }
 
+function download(filename, text) {
+  var element = document.createElement('a');
+  element.setAttribute('href', 'data:application/csv;charset=utf-8,' + encodeURIComponent(text));
+  element.setAttribute('download', filename);
+
+  element.style.display = 'none';
+  document.body.appendChild(element);
+
+  element.click();
+
+  document.body.removeChild(element);
+}
+
 async function downloadImages(/** @type {Task} */ task) {
   tasks.add(task);
+  const downloaded = [];
   for (const image of task.imagesToDownload) {
     await new Promise((resolve) => {
       chrome.downloads.download({ url: image }, (downloadId) => {
@@ -43,10 +57,16 @@ async function downloadImages(/** @type {Task} */ task) {
           }
           task.next();
         }
+        if (!image.includes(";base64")) {
+          const [ , filename ] = /[^\\]+\/([^\/?]+)/gm.exec(image) ?? [ 'unknown' ];
+          downloaded.push(`"${filename}";"${image}";`);
+        }
         resolve();
       });
     });
   }
+  // Save stats
+  download(Date.now() + ".csv", downloaded.join("\n"));
 }
 
 // https://developer.chrome.com/docs/extensions/reference/downloads/#event-onDeterminingFilename

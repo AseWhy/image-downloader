@@ -51,6 +51,7 @@ it(`matches 'localStorage' snapshot`, () => {
       "image_max_width_default": "200",
       "image_min_width": "50",
       "image_min_width_default": "50",
+      "enable_auto_save": false,
       "new_file_name": "",
       "new_file_name_default": "",
       "only_images_from_links": "false",

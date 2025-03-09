@@ -137,6 +137,14 @@ export const AdvancedFilters = ({ options, setOptions }) => {
       >
         Only images from links
       <//>
+
+      <${Checkbox}
+        title="Automatically loads new images on the page"
+        checked=${options.enable_auto_save === 'true'}
+        onChange=${setCheckboxOption('enable_auto_save')}
+      >
+        Auto download
+      <//>
     </div>
   `;
 };

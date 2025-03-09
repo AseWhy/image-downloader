@@ -16,6 +16,7 @@ const defaults = {
   filter_max_height_enabled: false,
   only_images_from_links: false,
   show_advanced_filters: true,
+  enable_auto_save: false,
   // Options
   // General
   show_download_confirmation: true,

@@ -1,7 +1,7 @@
 {
   "name": "Image Downloader",
   "description": "Browse and download images on the web",
-  "version": "3.4.2",
+  "version": "3.4.3",
   "minimum_chrome_version": "72",
   "manifest_version": 2,
   "icons": {
@@ -18,7 +18,8 @@
     "persistent": true,
     "scripts": [
       "/src/background/downloadImages.js",
-      "/src/background/handleUpdates.js"
+      "/src/background/handleUpdates.js",
+      "/src/background/scanImages.js"
     ]
   },
   "permissions": [
