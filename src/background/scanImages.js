@@ -4,6 +4,9 @@ const CONTENT_UDADTE_INTERVAL = 1000;
 /** Набор уже загруженных файлов */
 const DOWNLOADED = new Set();
 
+/** SRC для загрузки с истечением срока давности */
+const TIMEOUT_SRC = "https://timeout/timeout.png";
+
 /**
  * Фильтр изображений
  * @param {string[]} images  исходный массив изображений
@@ -58,9 +61,17 @@ const filterImages = async (images, options) => {
     const image = new Image();
     image.src = src;
     return new Promise(res => {
-        const resImage = () => res(image);
-        image.onload = resImage;
-        image.onerror = resImage;
+      function resImage() {
+        clearTimeout(timeout);
+        res(image.src === TIMEOUT_SRC ? null : image);
+      }
+
+      image.onload = resImage;
+      image.onerror = resImage;
+      image.onabort = resImage;
+      image.oncancel = resImage;
+
+      const timeout = setTimeout(() => image.src = TIMEOUT_SRC, 10000);
     });
   }))
 
@@ -81,15 +92,19 @@ const filterImages = async (images, options) => {
 
 // @ts-check
 chrome.runtime.onInstalled.addListener(() => {
+    // Признак текущей загрузки
+    let currentInDownloading = false;
+
     setInterval(() => {
-        if (localStorage.enable_auto_save !== "true") return;
+        if (localStorage.enable_auto_save !== "true")
+          return;
         // Get images on the page
         chrome.windows.getCurrent((currentWindow) => {
             chrome.tabs.query(
             { active: true, windowId: currentWindow.id },
             (activeTabs) => {
                 chrome.tabs.executeScript(activeTabs[0].id, {
-                    file: '/src/Popup/sendImages.js',
+                  file: '/src/Popup/sendImages.js',
                     allFrames: true,
                 });
             }
@@ -97,19 +112,30 @@ chrome.runtime.onInstalled.addListener(() => {
         });
     }, CONTENT_UDADTE_INTERVAL);
 
-    // Add images to state and trigger filtration.
-    // `sendImages.js` is injected into all frames of the active tab, so this listener may be called multiple times.
     chrome.runtime.onMessage.addListener(async (message) => {
-        if (message.type !== 'sendImages') return;
-        const imagesToDownload = [];
-        const imagesToFilter = (localStorage.only_images_from_links === 'true' ? message.linkedImages : message.allImages)
-            .filter(url => !DOWNLOADED.has(url));
-        for (const image of await filterImages(imagesToFilter, localStorage)) {
-            imagesToDownload.push(image);
-            DOWNLOADED.add(image);
+        if (message.type !== "sendImages" || localStorage.enable_auto_save !== "true" || currentInDownloading) {
+          return;
         }
+        currentInDownloading = true;
+        const imagesToDownload = [];
+        try {
+          const imagesToFilter = (localStorage.only_images_from_links === "true" ? message.linkedImages : message.allImages)
+              .filter(url => !DOWNLOADED.has(url.replace(/\?.*$/, "")));
+          for (const image of await filterImages(imagesToFilter, localStorage)) {
+              imagesToDownload.push(image);
+              DOWNLOADED.add(image.replace(/\?.*$/, ""));
+          }
+        } finally {
+          currentInDownloading = false;
+        }
+        console.log(imagesToDownload);
         if (imagesToDownload.length > 0) {
-            await new Promise(res => chrome.runtime.onMessage.dispatch({ type: 'downloadImages', imagesToDownload, options: {} }, res));
+          const { results: [ asyn, promise ] } = chrome.runtime.onMessage.dispatch({ type: 'downloadImages', imagesToDownload, options: {
+            folder_name: localStorage.folder_name } });
+
+          if (asyn) {
+            await promise;
+          }
         }
     });
 });
