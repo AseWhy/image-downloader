@@ -57,10 +57,10 @@ const filterImages = async (images, options) => {
     }
   }
 
-  images = await Promise.all(images.map(src => {
+  for (let i = 0; i < images.length; i++) {
     const image = new Image();
-    image.src = src;
-    return new Promise(res => {
+    image.src = images[i];
+    images[i] = await new Promise(res => {
       function resImage() {
         clearTimeout(timeout);
         res(image.src === TIMEOUT_SRC ? null : image);
@@ -73,7 +73,7 @@ const filterImages = async (images, options) => {
 
       const timeout = setTimeout(() => image.src = TIMEOUT_SRC, 10000);
     });
-  }))
+  }
 
   return images.filter((image) => {
     return (
@@ -100,15 +100,15 @@ chrome.runtime.onInstalled.addListener(() => {
           return;
         // Get images on the page
         chrome.windows.getCurrent((currentWindow) => {
-            chrome.tabs.query(
-            { active: true, windowId: currentWindow.id },
+          chrome.tabs.query(
+            {active: true, windowId: currentWindow.id},
             (activeTabs) => {
                 chrome.tabs.executeScript(activeTabs[0].id, {
                   file: '/src/Popup/sendImages.js',
                     allFrames: true,
                 });
             }
-            );
+          );
         });
     }, CONTENT_UDADTE_INTERVAL);
 

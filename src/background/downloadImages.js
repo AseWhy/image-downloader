@@ -4,17 +4,19 @@
 /** @type {Set<Task>} */
 const tasks = new Set();
 
+/** Задача по умолчанию */
+const DEFAULT_TASK = { options: localStorage, imagesToDownload: [], numberOfProcessedImages: 0, next: () => {} };
+
 chrome.runtime.onMessage.addListener(startDownload);
 chrome.downloads.onDeterminingFilename.addListener(suggestNewFilename);
 
-// NOTE: Don't directly use an `async` function as a listener for `onMessage`:
-// https://stackoverflow.com/a/56483156
-// https://developer.chrome.com/docs/extensions/reference/runtime/#event-onMessage
-function startDownload(
-  /** @type {any} */ message,
-  /** @type {chrome.runtime.MessageSender} */ sender,
-  /** @type {(response?: any) => void} */ resolve
-) {
+/**
+ * Запускает загрузку
+ * @param {any} message 
+ * @param {chrome.runtime.MessageSender} sender 
+ * @param {(response?: any) => void} resolve 
+ */
+function startDownload(message, sender, resolve) {
   if (!(message && message.type === 'downloadImages')) return;
 
   downloadImages({
@@ -23,7 +25,7 @@ function startDownload(
     options: message.options,
     next() {
       this.numberOfProcessedImages += 1;
-      if (this.numberOfProcessedImages === this.imagesToDownload.length) {
+      if (this.numberOfProcessedImages === this.imagesToDownload.length + 1) {
         tasks.delete(this);
       }
     },
@@ -32,71 +34,75 @@ function startDownload(
   return true; // Keeps the message channel open until `resolve` is called
 }
 
-function download(filename, text) {
-  var element = document.createElement('a');
-  element.setAttribute('href', 'data:application/csv;charset=utf-8,' + encodeURIComponent(text));
-  element.setAttribute('download', filename);
-
-  element.style.display = 'none';
-  document.body.appendChild(element);
-
-  element.click();
-
-  document.body.removeChild(element);
+/**
+ * Запускает загрузку изображения
+ * @param {string} image    ссылка на изображение
+ * @param {string | undefined} filename имя файла
+ * @returns идентификатор загрузки
+ */
+function downalod(image, filename) {
+  return new Promise((res) => chrome.downloads.download({ url: image, filename }, res));
 }
 
-async function downloadImages(/** @type {Task} */ task) {
-  tasks.add(task);
+/**
+ * Выполняет загрузку изображений в задаче
+ * @param {Task} task задача загрузки
+ */
+async function downloadImages(task) {
   const downloaded = [];
+
+  tasks.add(task);
+
   for (const image of task.imagesToDownload) {
-    await new Promise((resolve) => {
-      chrome.downloads.download({ url: image }, (downloadId) => {
-        if (downloadId == null) {
-          if (chrome.runtime.lastError) {
-            console.error(`${image}:`, chrome.runtime.lastError.message);
-          }
-          task.next();
-        }
-        if (!image.includes(";base64")) {
-          const [ , filename ] = /[^\\]+\/([^\/?]+)/gm.exec(image) ?? [ 'unknown' ];
-          downloaded.push(`"${filename}";"${image}";`);
-        }
-        resolve();
-      });
-    });
+    const downloadId = await downalod(image, undefined);
+
+    if (downloadId == null) {
+      if (chrome.runtime.lastError) {
+        console.error(`${image}:`, chrome.runtime.lastError.message);
+      }
+
+      task.next();
+    }
+    if (!image.includes(";base64")) {
+      const [ , filename ] = /[^\\]+\/([^\/?]+)/gm.exec(image) ?? [ 'unknown' ];
+      downloaded.push(`"${filename}";"${image}";`);
+    }
   }
-  // Save stats
-  download(Date.now() + ".csv", downloaded.join("\n"));
+
+  // Загружаем csv файл
+  await downalod(`data:text/csv;charset=UTF-8,${encodeURIComponent(downloaded.join("\n"))}`, Date.now() + ".csv");
 }
 
 // https://developer.chrome.com/docs/extensions/reference/downloads/#event-onDeterminingFilename
 /** @type {Parameters<chrome.downloads.DownloadDeterminingFilenameEvent['addListener']>[0]} */
 function suggestNewFilename(item, suggest) {
   const task = [...tasks][0];
-  if (!task) {
-    suggest();
-    return;
-  }
 
-  let newFilename = '';
-  if (task.options.folder_name) {
-    newFilename += `${task.options.folder_name}/`;
-  }
-  if (task.options.new_file_name) {
-    const regex = /(?:\.([^.]+))?$/;
-    const extension = regex.exec(item.filename)[1];
-    const numberOfDigits = task.imagesToDownload.length.toString().length;
-    const formattedImageNumber = `${task.numberOfProcessedImages + 1}`.padStart(
-      numberOfDigits,
-      '0'
-    );
-    newFilename += `${task.options.new_file_name}${formattedImageNumber}.${extension}`;
+  if (task) {
+    let newFilename = '';
+
+    if (task.options.folder_name) {
+      newFilename += `${task.options.folder_name}/`;
+    }
+
+    if (task.options.new_file_name) {
+      const extension = /(?:\.([^.]+))?$/.exec(item.filename)?.[1];
+      const numberOfDigits = task.imagesToDownload.length.toString().length;
+      const formattedImageNumber = `${task.numberOfProcessedImages + 1}`.padStart(
+        numberOfDigits,
+        '0'
+      );
+      newFilename += `${task.options.new_file_name}${formattedImageNumber}.${extension}`;
+    } else {
+      newFilename += item.filename === 'Без названия.csv' ? `${Date.now()}.csv` : item.filename;
+    }
+
+    suggest({ filename: normalizeSlashes(newFilename) });
+
+    task.next();
   } else {
-    newFilename += item.filename;
+    suggest();
   }
-
-  suggest({ filename: normalizeSlashes(newFilename) });
-  task.next();
 }
 
 function normalizeSlashes(filename) {
