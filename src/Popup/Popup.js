@@ -19,13 +19,24 @@ import { DownloadConfirmation } from './DownloadConfirmation.js';
 import { Images } from './Images.js';
 import { UrlFilterMode } from './UrlFilterMode.js';
 
-const initialOptions = localStorage;
+// Initialize with empty options, will be populated from storage
+const initialOptions = {};
 
 const Popup = () => {
   const [options, setOptions] = useState(initialOptions);
-
+  
+  // Load options from storage when component mounts
   useEffect(() => {
-    Object.assign(localStorage, options);
+    chrome.storage.local.get(null).then(data => {
+      setOptions(data);
+    });
+  }, []);
+
+  // Save options to storage when they change
+  useEffect(() => {
+    if (Object.keys(options).length > 0) {
+      chrome.storage.local.set(options);
+    }
   }, [options]);
 
   const [allImages, setAllImages] = useState([]);
@@ -42,22 +53,27 @@ const Popup = () => {
         unique([...linkedImages, ...message.linkedImages])
       );
 
-      localStorage.active_tab_origin = message.origin;
+      // Update active_tab_origin in storage
+      chrome.storage.local.set({ active_tab_origin: message.origin });
     };
 
     // Add images to state and trigger filtration.
     // `sendImages.js` is injected into all frames of the active tab, so this listener may be called multiple times.
     chrome.runtime.onMessage.addListener(updatePopupData);
 
-    // Get images on the page
+    // Get images on the page using the new scripting API
     chrome.windows.getCurrent((currentWindow) => {
       chrome.tabs.query(
         { active: true, windowId: currentWindow.id },
         (activeTabs) => {
-          chrome.tabs.executeScript(activeTabs[0].id, {
-            file: '/src/Popup/sendImages.js',
-            allFrames: true,
-          });
+          if (activeTabs.length > 0 && activeTabs[0].id) {
+            chrome.scripting.executeScript({
+              target: { tabId: activeTabs[0].id, allFrames: true },
+              files: ['/src/Popup/sendImages.js']
+            }).catch(error => {
+              console.error('Error executing script:', error);
+            });
+          }
         }
       );
     });

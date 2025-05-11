@@ -1,4 +1,4 @@
-import html, { render, useState } from '../html.js';
+import html, { render, useState, useEffect } from '../html.js';
 
 import { Checkbox } from '../components/Checkbox.js';
 import { isNotStrictEqual } from '../utils.js';
@@ -6,19 +6,9 @@ import { isNotStrictEqual } from '../utils.js';
 import { About } from './About.js';
 import { Support } from './Support.js';
 
-const initialOptions = Object.keys(localStorage)
-  .filter((key) => !key.endsWith('_default'))
-  .reduce((options, key) => ({ ...options, [key]: localStorage[key] }), {});
-
-const defaultOptions = Object.keys(localStorage)
-  .filter((key) => key.endsWith('_default'))
-  .reduce(
-    (options, key) => ({
-      ...options,
-      [key.replace('_default', '')]: localStorage[key],
-    }),
-    {}
-  );
+// Initialize with empty options
+const initialOptions = {};
+const defaultOptions = {};
 
 const useNotifications = (initialNotifications = []) => {
   const [notifications, setNotifications] = useState(initialNotifications);
@@ -43,6 +33,28 @@ const useNotifications = (initialNotifications = []) => {
 
 const Options = () => {
   const [options, setOptions] = useState(initialOptions);
+  const [defaults, setDefaults] = useState(defaultOptions);
+  
+  // Load options from storage when component mounts
+  useEffect(() => {
+    chrome.storage.local.get(null).then(data => {
+      // Extract non-default options
+      const loadedOptions = {};
+      // Extract default options
+      const loadedDefaults = {};
+      
+      Object.keys(data).forEach(key => {
+        if (key.endsWith('_default')) {
+          loadedDefaults[key.replace('_default', '')] = data[key];
+        } else {
+          loadedOptions[key] = data[key];
+        }
+      });
+      
+      setOptions(loadedOptions);
+      setDefaults(loadedDefaults);
+    });
+  }, []);
 
   const setCheckboxOption = (key) => ({ currentTarget: { checked } }) => {
     setOptions((options) => ({ ...options, [key]: checked.toString() }));
@@ -53,12 +65,13 @@ const Options = () => {
   };
 
   function saveOptions() {
-    Object.assign(localStorage, options);
-    addNotification('success', 'Options saved');
+    chrome.storage.local.set(options).then(() => {
+      addNotification('success', 'Options saved');
+    });
   }
 
   function resetOptions() {
-    setOptions(defaultOptions);
+    setOptions(defaults);
     addNotification(
       'accent',
       'All options have been reset to their default values. You can now save the changes you made or discard them by closing this page.'
@@ -70,8 +83,9 @@ const Options = () => {
       'This will delete all extension data related to filters, options, and the name of the default folder where files are saved. Continue?'
     );
     if (userHasConfirmed) {
-      localStorage.clear();
-      window.location.reload();
+      chrome.storage.local.clear().then(() => {
+        window.location.reload();
+      });
     }
   }
 
